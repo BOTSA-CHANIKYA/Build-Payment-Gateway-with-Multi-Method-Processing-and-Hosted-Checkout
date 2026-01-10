@@ -1,0 +1,61 @@
+version: '3.8'  # Added version
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: pggateway
+    environment:
+      POSTGRES_DB: paymentgateway
+      POSTGRES_USER: gatewayuser
+      POSTGRES_PASSWORD: gatewaypass
+    ports:
+      - "5432:5432"  # ✅ Fixed: 5433→5432 (standard)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gatewayuser -d paymentgateway"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgresdata:/var/lib/postgresql/data
+      - ./backend/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+
+  api:
+    build: ./backend
+    container_name: gatewayapi
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://gatewayuser:gatewaypass@postgres:5432/paymentgateway  # ✅ postgres host
+      PORT: 8000
+      TESTMODE: "true"   # ✅ Enable for eval (deterministic)
+      TESTPAYMENTSUCCESS: "true"
+      TESTPROCESSINGDELAY: 2000  # 2s fast tests
+      UPISUCCESSRATE: "0.90"
+      CARDSUCCESSRATE: "0.95"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/node_modules  # ✅ Persist node_modules
+
+  dashboard:
+    build: ./frontend/dashboard
+    container_name: gatewaydashboard
+    ports:
+      - "3000:80"  # ✅ Nginx on 80
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  checkout:
+    build: ./frontend/checkout
+    container_name: gatewaycheckout
+    ports:
+      - "3001:80"  # ✅ Nginx on 80
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  postgresdata:
